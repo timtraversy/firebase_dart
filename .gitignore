@@ -1,3 +1,6 @@
 .idea/
 .atom/
 config.dart
+.dart_tool/
+.packages
+pubspec.lock

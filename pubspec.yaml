@@ -1,7 +1,14 @@
-name: course_gnome_scrape
+name: firebase_dart
+version: 0.0.1
+description: Firebase functionality written in pure Dart, for sharing code between Flutter, web, and server.
+author: Tim Traversy <timtrav@gmail.com>
+homepage: https://github.com/timtraversy/firebase_dart
+
+environment:
+  sdk: '>=2.0.0 <3.0.0'
+
 dependencies:
   http: ^0.12.0+1
-  course_gnome:
-    path: ../course_gnome/course_gnome
-  html: ^0.13.3+3
-  algolia: ^0.1.3+2
+
+dev_dependencies:
+  test: ^1.3.4
