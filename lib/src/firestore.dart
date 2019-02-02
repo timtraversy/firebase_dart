@@ -37,7 +37,7 @@ main() async {
   } catch (e) {
     print(e);
   }
-//  final QuerySnapshot qs = await collection.get();
+//  final QuerySnapshot qs = await collection.where().limit().get();
 //  qs.forEach((DocumentSnapshot doc) => print('${doc.id} => ${doc.data()}'));
   final ds = await docRef.get();
   print(ds);
@@ -45,14 +45,20 @@ main() async {
 
 class Firestore {
   final Firebase firebase;
-  final baseUrl;
-  final baseName;
+  final String baseUrl;
+  final String baseName;
+
   Firestore({@required Firebase firebase})
       : firebase = firebase,
         baseUrl =
             'https://firestore.googleapis.com/v1beta1/projects/${firebase.projectId}/databases/(default)/documents/',
         baseName =
             'projects/${firebase.projectId}/databases/(default)/documents/';
+
+  @override
+  String toString() {
+    return 'Firestore{firebase: $firebase}';
+  }
 
   DocumentReference doc(String documentPath) {
     final parts = documentPath.split('/');
@@ -81,17 +87,9 @@ class Firestore {
     return CollectionReference(firestore: this, path: path, id: id);
   }
 
-//  /// Creates a write batch, used for performing multiple writes as a single
-//  /// atomic operation.
-//  WriteBatch batch() {
-//
-//  }
-//
-//  Future runTransaction(Transaction transaction) {
-//
-//  }
+  // API calls
 
-  Future<String> deleteDocument(
+  Future<String> _delete(
       {@required String name, Precondition precondition}) async {
     var url = '$baseUrl$name';
 
@@ -99,10 +97,6 @@ class Firestore {
       if (precondition.exists != null) {
         url += '?currentDocument.exists=${precondition.exists}';
       }
-//      if (precondition.updateTime != null) {
-//        url +=
-//            '?currentDocument.updateTime=${precondition.updateTime}';
-//      }
     }
     final response = await http.delete(url);
     if (response.statusCode != 200) {
@@ -111,7 +105,7 @@ class Firestore {
     return null;
   }
 
-  Future<DocumentReference> createDocument(
+  Future<DocumentReference> _createDocument(
       {@required String path,
       @required Map<String, dynamic> document,
       String docId = ''}) async {
@@ -146,7 +140,7 @@ class Firestore {
     return DocumentSnapshot(data, exists: true, id: id, ref: ref);
   }
 
-  Future<QuerySnapshot> getDocuments({String path, Query query}) {}
+  Future<QuerySnapshot> _runQuery({String path, Query query}) {}
 
   String _dateTimeToTimestamp(DateTime dt) {
     return dt.toUtc().toIso8601String();
@@ -156,7 +150,6 @@ class Firestore {
     var map = Map<String, dynamic>();
     var entries = fields.entries;
     for (final entry in entries) {
-
       // TODO handle datetime, ints, LtLng etc.
       Map<String, dynamic> entryMap = entry.value;
       print(entryMap.entries.first.value);
@@ -261,12 +254,60 @@ class DocumentReference {
   CollectionReference collection(String collectionPath) {}
 }
 
-class CollectionReference {
+class Query {
   final Firestore firestore;
-  final String id;
-  final String path;
+  // TODO store this model
+//  {
+//  "select": {
+//  object(Projection)
+//  },
+//  "from": [
+//  {
+//  object(CollectionSelector)
+//  }
+//  ],
+//  "where": {
+//  object(Filter)
+//  },
+//  "orderBy": [
+//  {
+//  object(Order)
+//  }
+//  ],
+//  "startAt": {
+//  object(Cursor)
+//  },
+//  "endAt": {
+//  object(Cursor)
+//  },
+//  "offset": number,
+//  "limit": number
+//  }
+  Query({@required this.firestore});
+
+  // query builders
+  Query endAt(dynamic value) {}
+  Query endBefore(dynamic value) {}
+  Query limit(int limit) {}
+  Query offset(int offset) {}
+  Query orderBy(int limit) {}
+  Query select() {}
+  Query startAfter(dynamic value) {}
+  Query startAt(dynamic value) {}
+//  "<", "<=", "==", ">", and ">=" array-contains"
+  Query where(String fieldPath, String operator, dynamic value) {}
+
+  Future<QuerySnapshot> get() async {
+    // handle generating query
+//    return await firestore._runQuery(path: path + id, query: null);
+  }
+}
+
+class CollectionReference extends Query {
+  final String id, path;
   CollectionReference(
-      {@required this.firestore, @required this.id, @required this.path});
+      {@required firestore, @required this.id, @required this.path})
+      : super(firestore: firestore);
 
   @override
   String toString() {
@@ -279,34 +320,26 @@ class CollectionReference {
   }
 
   Future<DocumentReference> add({Map<String, dynamic> document}) async {
-    return await firestore.createDocument(path: path + id, document: document);
+    return await firestore._createDocument(path: path + id, document: document);
   }
 
-  Query where() {}
-
-  Future<QuerySnapshot> get() async {
-    return await firestore.getDocuments(path: path + id, query: null);
-  }
-}
-
-class Query {
-  final Firestore firestore;
-
-  Query({this.firestore});
-
-  Query where() {}
-  Query limit(int limit) {}
-  Query orderBy(int limit) {}
-  Future<QuerySnapshot> get() {}
+  Future<List<DocumentReference>> listDocuments() {}
 }
 
 class DocumentSnapshot {
+  final DateTime createTime, readTime, updateTime;
   final Map<String, dynamic> _data;
   final bool exists;
   final String id;
   final DocumentReference ref;
 
-  DocumentSnapshot(this._data, {this.exists, this.id, this.ref});
+  DocumentSnapshot(this._data,
+      {this.createTime,
+      this.readTime,
+      this.updateTime,
+      this.exists,
+      this.id,
+      this.ref});
 
   @override
   String toString() {
@@ -322,8 +355,20 @@ class DocumentSnapshot {
   }
 }
 
+class QueryDocumentSnapshot extends DocumentSnapshot {
+  QueryDocumentSnapshot(data,
+      {createTime, readTime, updateTime, id, ref})
+      : super(data,
+            createTime: createTime,
+            readTime: readTime,
+            updateTime: updateTime,
+            exists: true,
+            id: id,
+            ref: ref);
+}
+
 class QuerySnapshot {
-  final List<DocumentSnapshot> docs;
+  final List<QueryDocumentSnapshot> docs;
   final bool empty;
   final Query query;
   final int size;
