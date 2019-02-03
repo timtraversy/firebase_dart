@@ -1,5 +1,5 @@
 import 'dart:convert';
-import 'dart:collection';
+import 'dart:math';
 import 'dart:typed_data';
 
 import 'package:meta/meta.dart';
@@ -7,40 +7,8 @@ import 'package:http/http.dart' as http;
 
 import 'firebase.dart';
 
-main() async {
-  final fb = Firebase.initialize(
-      apiKey: '2', projectId: 'fire-dart-test', authDomain: '2');
-  final fs = fb.firestore();
-  final collection = fs.collection('hello');
-  final doc = {
-    'null': null,
-    'bool': true,
-    'int': 100,
-    'double': 3.14159,
-    'timestamp': DateTime(1996),
-    'string': 'Hello Firestore!',
-    'reference': 'myDocs/anotherDoc',
-    'geoPoint': LatLng(lat: 37, lng: -122),
-//    'array': ['a', 2, true, null],
-//    'map': {
-//      'nestedMap': {
-//        'x': 1.5,
-//        'y': 'foo',
-//      },
-//      'z': false,
-//    }
-  };
-  DocumentReference docRef;
-  try {
-    docRef = await collection.add(document: doc);
-    print('Document written with ID: ${docRef.id}');
-  } catch (e) {
-    print(e);
-  }
-//  final QuerySnapshot qs = await collection.where().limit().get();
-//  qs.forEach((DocumentSnapshot doc) => print('${doc.id} => ${doc.data()}'));
-  final ds = await docRef.get();
-  print(ds);
+class FirestoreError extends Error {
+
 }
 
 class Firestore {
@@ -60,34 +28,28 @@ class Firestore {
     return 'Firestore{firebase: $firebase}';
   }
 
-  DocumentReference doc(String documentPath) {
-    final parts = documentPath.split('/');
-    if (parts.length % 2 != 0) {
-      // Formatting error
-      return null;
-    }
-    final id = parts.last;
-    final path = parts.length == 1
-        ? ''
-        : parts.sublist(0, parts.length - 1).join('/') + '/';
-    var dr = DocumentReference(firestore: this, path: path, id: id);
-    return DocumentReference(firestore: this, path: path, id: id);
-  }
+  DocumentReference doc(String name) =>
+      DocumentReference(firestore: this, name: name);
 
-  CollectionReference collection(String collectionPath) {
-    final parts = collectionPath.split('/');
-    if (parts.length % 2 == 0) {
-      // Formatting error
-      return null;
-    }
-    final id = parts.last;
-    final path = parts.length == 1
-        ? ''
-        : parts.sublist(0, parts.length - 1).join('/') + '/';
-    return CollectionReference(firestore: this, path: path, id: id);
-  }
+  CollectionReference collection(String name) =>
+      CollectionReference(firestore: this, name: name);
 
-  // API calls
+  // API methods
+
+  Future<DocumentReference> _createDocument(
+      {@required String path, @required Map<String, dynamic> document}) async {
+    final url = '$baseUrl$path?documentId=';
+
+    final fields = _parseDocumentMap(document);
+
+    final response = await http.post(url, body: jsonEncode(fields));
+    if (response.statusCode != 200) {
+      throw FormatException('Failed to create document: ${response.body}');
+    }
+
+    final jsonResp = jsonDecode(response.body);
+    return doc(jsonResp['name'].toString().substring(baseName.length));
+  }
 
   Future<String> _delete(
       {@required String name, Precondition precondition}) async {
@@ -105,30 +67,7 @@ class Firestore {
     return null;
   }
 
-  Future<DocumentReference> _createDocument(
-      {@required String path,
-      @required Map<String, dynamic> document,
-      String docId = ''}) async {
-    final url = '$baseUrl$path?documentId=$docId';
-
-    final fields = _parseMap(document);
-    if (fields == null) {
-      return null;
-    }
-
-    final response = await http.post(url, body: jsonEncode(fields));
-    if (response.statusCode != 200) {
-      print('Error: Document creation unsuccesful');
-      print(response.body);
-      return null;
-    }
-
-    final jsonResp = jsonDecode(response.body);
-    return doc(jsonResp['name'].toString().substring(baseName.length));
-  }
-
-  Future<DocumentSnapshot> getDocument(
-      {@required DocumentReference ref}) async {
+  Future<DocumentSnapshot> _get({@required DocumentReference ref}) async {
     final url = '$baseUrl${ref.path + ref.id}';
     final response = await http.get(url);
     if (response.statusCode != 200) {
@@ -140,7 +79,11 @@ class Firestore {
     return DocumentSnapshot(data, exists: true, id: id, ref: ref);
   }
 
+  Future _patch() {}
+
   Future<QuerySnapshot> _runQuery({String path, Query query}) {}
+
+  // Helper methods
 
   String _dateTimeToTimestamp(DateTime dt) {
     return dt.toUtc().toIso8601String();
@@ -152,8 +95,6 @@ class Firestore {
     for (final entry in entries) {
       // TODO handle datetime, ints, LtLng etc.
       Map<String, dynamic> entryMap = entry.value;
-      print(entryMap.entries.first.value);
-      print(entryMap.entries.first.value.runtimeType);
       map[entry.key] = entryMap.entries.first.value;
     }
     return map;
@@ -165,21 +106,15 @@ class Firestore {
 //    }
 //  }
 
-  Map<String, dynamic> _parseMap(Map<String, dynamic> document) {
+  Map<String, dynamic> _parseDocumentMap(Map<String, dynamic> document) {
     var fields = {};
-    var entries = document.entries;
-    for (final entry in entries) {
-      final json = _valueToJson(entry.value);
-      if (json == null) {
-        print('Error: Unsupported data type: ${entry.value}');
-        return null;
-      }
-      fields[entry.key] = _valueToJson(entry.value);
-    }
+    document.entries.forEach((entry) {
+      fields[entry.key] = _valueToFBFormat(entry.value);
+    });
     return {'fields': fields};
   }
 
-  Map<String, dynamic> _valueToJson(dynamic value) {
+  Map<String, dynamic> _valueToFBFormat(dynamic value) {
     if (value == null) {
       return {'nullValue': value};
     }
@@ -198,11 +133,10 @@ class Firestore {
     if (value is String) {
       return {'stringValue': value};
     }
-    // TODO: bytes parsing, gh link
+    // TODO: bytes parsing, GH link
     if (value is Uint8List) {
-      print('This package can\'t handle byte values yet.');
-      return null;
-//      return {'bytesValue': value.toString()};
+      throw UnimplementedError(
+          'This package can\'t handle byte values yet. https://github.com/timtraversy/firebase_dart');
     }
     if (value is Reference) {
       return {'referenceValue': value.path};
@@ -221,17 +155,17 @@ class Firestore {
       };
       for (final subVal in value) {
         if (subVal is List) {
-          print('Error: an array cannot directly contain another array value');
-          return null;
+          throw FormatException(
+              'Error: an array cannot directly contain another array value');
         }
-        arrayValue['arrayValue']['values'].add(_valueToJson(subVal));
+        arrayValue['arrayValue']['values'].add(_valueToFBFormat(subVal));
       }
       return arrayValue;
     }
     if (value is Map) {
-      return {'mapValue': _parseMap(value)};
+      return {'mapValue': _parseDocumentMap(value)};
     }
-    return null;
+    throw ArgumentError('The argument $value is not supported by Firebase');
   }
 }
 
@@ -239,23 +173,42 @@ class DocumentReference {
   final Firestore firestore;
   final String id;
   final String path;
-  DocumentReference(
+  DocumentReference._internal(
       {@required this.firestore, @required this.id, @required this.path});
+
+  factory DocumentReference({Firestore firestore, String name}) {
+    final parts = name.split('/');
+    if (parts.length % 2 != 0) {
+      return null;
+    }
+    final id = parts.last;
+    final path = parts.sublist(0, parts.length - 1).join('/') + '/';
+    return DocumentReference._internal(
+        firestore: firestore, id: id, path: path);
+  }
 
   @override
   String toString() {
     return 'DocumentReference{firestore: $firestore, id: $id, path: $path}';
   }
 
+  CollectionReference collection(String name) =>
+      CollectionReference(firestore: firestore, name: '$path$id/$name');
+
   Future<DocumentSnapshot> get() async {
-    return await firestore.getDocument(ref: this);
+    return await firestore._get(ref: this);
   }
 
-  CollectionReference collection(String collectionPath) {}
+  Future<DocumentReference> set(Map<String, dynamic> document) async {
+//    return await firestore._patch(path: null, document: null);
+  }
+
+  Future<DocumentReference> update() async {}
 }
 
 class Query {
   final Firestore firestore;
+  final Map query;
   // TODO store this model
 //  {
 //  "select": {
@@ -283,10 +236,14 @@ class Query {
 //  "offset": number,
 //  "limit": number
 //  }
-  Query({@required this.firestore});
+  Query(this.firestore, this.query);
 
   // query builders
-  Query endAt(dynamic value) {}
+  Query endAt(dynamic value) {
+    final newQuery = query;
+    return Query(firestore, newQuery);
+  }
+
   Query endBefore(dynamic value) {}
   Query limit(int limit) {}
   Query offset(int offset) {}
@@ -305,25 +262,57 @@ class Query {
 
 class CollectionReference extends Query {
   final String id, path;
-  CollectionReference(
-      {@required firestore, @required this.id, @required this.path})
-      : super(firestore: firestore);
+  CollectionReference._internal(firestore, query,
+      {@required this.id, @required this.path})
+      : super(firestore, query);
+
+  factory CollectionReference({Firestore firestore, String name}) {
+    final parts = name.split('/');
+    if (parts.length % 2 == 0) {
+      return null;
+    }
+    final id = parts.last;
+    print(id);
+    final path = parts.length == 1
+        ? ''
+        : parts.sublist(0, parts.length - 1).join('/') + '/';
+    return CollectionReference._internal(firestore, {}, id: id, path: path);
+  }
 
   @override
   String toString() {
     return 'CollectionReference{firestore: $firestore, id: $id, path: $path}';
   }
 
-  DocumentReference doc(String docId) {
-    return DocumentReference(
-        firestore: firestore, id: docId, path: '$path/$id');
-  }
+  DocumentReference doc(String name) =>
+      DocumentReference(firestore: firestore, name: '$path$id/$name');
 
-  Future<DocumentReference> add({Map<String, dynamic> document}) async {
+//  String _generateId() {
+//    var id = '';
+//    var rand = Random.secure();
+//    while (id.length < 20) {
+//      final num = rand.nextInt(68);
+//      if (num < 10) {
+//        id += num.toString();
+//        continue;
+//      }
+//      if (num < 36) {
+//        id += String.fromCharCode(num + 55);
+//        continue;
+//      }
+//      if (num < 42) {
+//        continue;
+//      }
+//      id += String.fromCharCode(num + 55);
+//    }
+//    return id;
+//  }
+
+  Future<DocumentReference> add(Map<String, dynamic> document) async {
     return await firestore._createDocument(path: path + id, document: document);
   }
 
-  Future<List<DocumentReference>> listDocuments() {}
+//  Future<List<DocumentReference>> listDocuments() {}
 }
 
 class DocumentSnapshot {
@@ -356,8 +345,7 @@ class DocumentSnapshot {
 }
 
 class QueryDocumentSnapshot extends DocumentSnapshot {
-  QueryDocumentSnapshot(data,
-      {createTime, readTime, updateTime, id, ref})
+  QueryDocumentSnapshot(data, {createTime, readTime, updateTime, id, ref})
       : super(data,
             createTime: createTime,
             readTime: readTime,
