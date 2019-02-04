@@ -12,7 +12,8 @@ void main() {
   final Firestore fs = fb.firestore();
 
   /// Create random collection name so two tests don't commit to the same collection
-  final collection = fs.collection(Random().nextDouble().toString());
+  final rand = Random().nextDouble().toString();
+  final collection = fs.collection(rand);
   final doc = {
     'null': null,
     'bool': true,
@@ -63,21 +64,35 @@ void main() {
 
   group('Add data', () {
     final dr = collection.doc('Boston');
-//    test('with set', () async {
-//      final dr2 = await dr.set(doc);
-//      expect(dr2, isNotNull);
-//      expect(dr2.id, equals('Boston'));
-//    });
+    test('with set', () async {
+      DocumentReference dr2 = await dr.set(doc);
+      expect(dr2.id, equals('Boston'));
+      expect(dr2.path, equals('$rand/'));
+      // Try again to confirm it overwrites existing doc
+      dr2 = await dr.set(doc);
+      expect(dr2.id, equals('Boston'));
+      expect(dr2.path, equals('$rand/'));
+    });
     test('with add', () async {
-      final dr2 = collection.add(doc);
-      expect(collection, completes);
+      final dr2 = await collection.add(doc);
+      expect(dr2.path, '$rand/');
     });
   });
 
   group('Update data', () {
-    test('with fields', () {});
-    test('with nested fields', () {});
-    test('with array fields', () {});
+    final dr = collection.doc('Boston');
+    test('with fields', () {
+      dr.update({
+        'bool': false,
+      });
+    });
+    test('with nested fields', () {
+      dr.update({
+        'map': {
+          'z': true,
+        }
+      });
+    });
   });
 
   group('Query data', () {

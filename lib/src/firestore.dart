@@ -7,9 +7,7 @@ import 'package:http/http.dart' as http;
 
 import 'firebase.dart';
 
-class FirestoreError extends Error {
-
-}
+class FirestoreError extends Error {}
 
 class Firestore {
   final Firebase firebase;
@@ -79,7 +77,22 @@ class Firestore {
     return DocumentSnapshot(data, exists: true, id: id, ref: ref);
   }
 
-  Future _patch() {}
+  Future<DocumentReference> _patch(
+      {@required String path,
+      @required Map<String, dynamic> document,
+      List<String> updateMask}) async {
+    final url = baseUrl + path;
+    if (updateMask != null) {
+      // deal with update
+    }
+    final fields = _parseDocumentMap(document);
+    final response = await http.patch(url, body: jsonEncode(fields));
+    if (response.statusCode != 200) {
+      throw FormatException('Failed to patch document: ${response.body}');
+    }
+    final jsonResp = jsonDecode(response.body);
+    return doc(jsonResp['name'].toString().substring(baseName.length));
+  }
 
   Future<QuerySnapshot> _runQuery({String path, Query query}) {}
 
@@ -200,10 +213,12 @@ class DocumentReference {
   }
 
   Future<DocumentReference> set(Map<String, dynamic> document) async {
-//    return await firestore._patch(path: null, document: null);
+    return await firestore._patch(path: path + id, document: document);
   }
 
-  Future<DocumentReference> update() async {}
+  Future<DocumentReference> update(Map<String, dynamic> document) async {
+
+  }
 }
 
 class Query {
@@ -272,7 +287,6 @@ class CollectionReference extends Query {
       return null;
     }
     final id = parts.last;
-    print(id);
     final path = parts.length == 1
         ? ''
         : parts.sublist(0, parts.length - 1).join('/') + '/';
